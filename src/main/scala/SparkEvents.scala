@@ -71,9 +71,9 @@ object SparkEvents {
 
   def writeEventsToFile(inputStream: InputStream, outputPath: Path, hadoopConf: Configuration) = {
     val fs = outputPath.getFileSystem(hadoopConf)
+    val fos = fs.create(outputPath)
     try {
       val buf = new Array[Byte](8192)
-      val fos = fs.create(outputPath)
       var len = inputStream.read(buf)
       while (len > 0) {
         fos.write(buf)
@@ -86,6 +86,7 @@ object SparkEvents {
         System.exit(1)
     } finally {
       inputStream.close()
+      fos.close()
       fs.close()
     }
   }
