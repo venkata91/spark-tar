@@ -1,13 +1,13 @@
+import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs._
 import org.apache.spark._
 import org.apache.spark.io._
-import org.apache.spark.sql._
 
 import java.io._
 import java.util.Locale
 import scala.collection.mutable
 
-object SparkEventsExtractor {
+object SparkEvents {
   val codecMap = new mutable.HashMap[String, CompressionCodec]
 
   val shortCompressionCodecNames = Map(
@@ -69,14 +69,25 @@ object SparkEventsExtractor {
     }
   }
 
-  def writeEventsToFile(inputStream: InputStream, filename: String) = {
-    val file = new File(filename)
-    val out = new java.io.PrintWriter(file)
-    scala.io.Source
-      .fromInputStream(inputStream)
-      .getLines()
-      .foreach(out.println(_))
-    out.close
+  def writeEventsToFile(inputStream: InputStream, outputPath: Path, hadoopConf: Configuration) = {
+    val fs = outputPath.getFileSystem(hadoopConf)
+    try {
+      val buf = new Array[Byte](8192)
+      val fos = fs.create(outputPath)
+      var len = inputStream.read(buf)
+      while (len > 0) {
+        fos.write(buf)
+        len = inputStream.read(buf)
+      }
+    } catch {
+      case ioe: IOException =>
+        println(ioe)
+        println("Exiting...")
+        System.exit(1)
+    } finally {
+      inputStream.close()
+      fs.close()
+    }
   }
 
   def main(args: Array[String]): Unit = {
@@ -86,9 +97,11 @@ object SparkEventsExtractor {
       )
       return
     }
-    val spark = SparkSession.builder.enableHiveSupport.getOrCreate()
-    val inputPath = new Path("file:" + args(0))
-    val inputStream = openEventLog(inputPath, FileSystem.getLocal(spark.sparkContext.hadoopConfiguration))
-    writeEventsToFile(inputStream, args(1))
+
+    val hadoopConf = new Configuration()
+    val inputPath = new Path(args(0))
+    val inputStream = openEventLog(inputPath, inputPath.getFileSystem(hadoopConf))
+    val outputPath = new Path(args(1))
+    writeEventsToFile(inputStream, outputPath, hadoopConf)
   }
 }

@@ -8,8 +8,7 @@ scalaVersion := "2.12.12"
 val sparkVersion = "3.1.1"
 
 libraryDependencies ++= Seq(
-  "org.apache.spark" %% "spark-core" % sparkVersion % "compile",
-  "org.apache.spark" %% "spark-sql" % sparkVersion % "compile"
+  "org.apache.spark" %% "spark-core" % sparkVersion % "compile"
 )
 
 javaOptions ++= Seq("-Xms512M", "-Xmx2048M", "-XX:+CMSClassUnloadingEnabled", "-Duser.timezone=GMT")
