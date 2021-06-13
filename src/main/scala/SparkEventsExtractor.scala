@@ -1,0 +1,94 @@
+import org.apache.hadoop.fs._
+import org.apache.spark._
+import org.apache.spark.io._
+import org.apache.spark.sql._
+
+import java.io._
+import java.util.Locale
+import scala.collection.mutable
+
+object SparkEventsExtractor {
+  val codecMap = new mutable.HashMap[String, CompressionCodec]
+
+  val shortCompressionCodecNames = Map(
+    "lz4" -> classOf[LZ4CompressionCodec].getName,
+    "lzf" -> classOf[LZFCompressionCodec].getName,
+    "snappy" -> classOf[SnappyCompressionCodec].getName,
+    "zstd" -> classOf[ZStdCompressionCodec].getName
+  )
+
+  def getSparkClassLoader: ClassLoader = getClass.getClassLoader
+
+  def getContextOrSparkClassLoader: ClassLoader =
+    Option(Thread.currentThread().getContextClassLoader)
+      .getOrElse(getSparkClassLoader)
+
+  def classForName(className: String): Class[_] = {
+    Class.forName(className, true, getContextOrSparkClassLoader)
+  }
+
+  def createCodec(conf: SparkConf, codecName: String): CompressionCodec = {
+    val codecClass =
+      shortCompressionCodecNames.getOrElse(
+        codecName.toLowerCase(Locale.ROOT),
+        codecName
+      )
+    val codec =
+      try {
+        val ctor = classForName(codecClass).getConstructor(classOf[SparkConf])
+        Some(ctor.newInstance(conf).asInstanceOf[CompressionCodec])
+      } catch {
+        case _: ClassNotFoundException | _: IllegalArgumentException => None
+      }
+    codec.getOrElse(
+      throw new IllegalArgumentException(
+        s"Codec [$codecName] is not available. " +
+          s"Consider setting snappy"
+      )
+    )
+  }
+
+  def codecName(log: Path): Option[String] = {
+    // Compression codec is encoded as an extension, e.g. app_123.lzf
+    // Since we sanitize the app ID to not include periods, it is safe to split on it
+    val logName = log.getName.stripSuffix(".inprogress")
+    logName.split("\\.").tail.lastOption
+  }
+
+  def openEventLog(log: Path, fs: FileSystem): InputStream = {
+    val in = new BufferedInputStream(fs.open(log))
+    try {
+      val codec = codecName(log).map { c =>
+        codecMap.getOrElseUpdate(c, createCodec(new SparkConf, c))
+      }
+      codec.map(_.compressedInputStream(in)).getOrElse(in)
+    } catch {
+      case e: Throwable =>
+        in.close()
+        throw e
+    }
+  }
+
+  def writeEventsToFile(inputStream: InputStream, filename: String) = {
+    val file = new File(filename)
+    val out = new java.io.PrintWriter(file)
+    scala.io.Source
+      .fromInputStream(inputStream)
+      .getLines()
+      .foreach(out.println(_))
+    out.close
+  }
+
+  def main(args: Array[String]): Unit = {
+    if (args.length < 2) {
+      println(
+        "Spark event log path is not available. Please try again with the spark event logs path!!"
+      )
+      return
+    }
+    val spark = SparkSession.builder.enableHiveSupport.getOrCreate()
+    val inputPath = new Path("file:" + args(0))
+    val inputStream = openEventLog(inputPath, FileSystem.getLocal(spark.sparkContext.hadoopConfiguration))
+    writeEventsToFile(inputStream, args(1))
+  }
+}
