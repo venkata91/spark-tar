@@ -1,5 +1,6 @@
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs._
+import org.apache.hadoop.io.IOUtils
 import org.apache.spark._
 import org.apache.spark.io._
 
@@ -69,16 +70,16 @@ object SparkEvents {
     }
   }
 
-  def writeEventsToFile(inputStream: InputStream, outputPath: Path, hadoopConf: Configuration) = {
+  def writeEventsToFile(
+      inputStream: InputStream,
+      outputPath: Path,
+      hadoopConf: Configuration): Unit = {
     val fs = outputPath.getFileSystem(hadoopConf)
     try {
       val buf = new Array[Byte](8192)
       val fos = fs.create(outputPath)
       var len = inputStream.read(buf)
-      while (len > 0) {
-        fos.write(buf)
-        len = inputStream.read(buf)
-      }
+      IOUtils.copyBytes(inputStream, fos, 4096, true)
     } catch {
       case ioe: IOException =>
         println(ioe)
