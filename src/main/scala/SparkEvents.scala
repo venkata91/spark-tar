@@ -70,15 +70,11 @@ object SparkEvents {
     }
   }
 
-  def writeEventsToFile(
-      inputStream: InputStream,
-      outputPath: Path,
-      hadoopConf: Configuration): Unit = {
+  def writeEventsToFile(inputStream: InputStream, outputPath: Path, hadoopConf: Configuration): Unit = {
     val fs = outputPath.getFileSystem(hadoopConf)
     val fos = fs.create(outputPath)
     try {
       val buf = new Array[Byte](8192)
-      var len = inputStream.read(buf)
       IOUtils.copyBytes(inputStream, fos, 4096, true)
     } catch {
       case ioe: IOException =>
